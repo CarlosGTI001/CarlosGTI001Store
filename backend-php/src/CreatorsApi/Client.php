@@ -9,13 +9,20 @@ use App\Support\HttpException;
 final class Client
 {
     private const DEFAULT_RESOURCES = [
+        'images.primary.small',
         'images.primary.medium',
+        'images.primary.large',
+        'images.variants.medium',
         'itemInfo.title',
         'itemInfo.features',
         'offersV2.listings.price',
         'offersV2.listings.savings',
+        'offersV2.listings.availability',
         'offersV2.listings.condition',
         'offersV2.listings.isBuyBoxWinner',
+        'offersV2.listings.merchantInfo',
+        'browseNodeInfo.browseNodes',
+        'browseNodeInfo.browseNodes.salesRank',
         'browseNodeInfo.websiteSalesRank',
     ];
 

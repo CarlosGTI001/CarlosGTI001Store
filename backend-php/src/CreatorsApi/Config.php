@@ -54,10 +54,20 @@ final class Config
             credentialId: $env->getRequired('CREDENTIAL_ID'),
             credentialSecret: $env->getRequired('CREDENTIAL_SECRET'),
             version: $version,
-            marketplace: $env->getRequired('MARKETPLACE'),
-            partnerTag: $env->getRequired('PARTNER_TAG'),
+            marketplace: self::requiredWithDefault($env, 'MARKETPLACE', 'www.amazon.com'),
+            partnerTag: self::requiredWithDefault($env, 'PARTNER_TAG', 'carlosgti000b-20'),
             requestTimeoutSeconds: (int) $timeoutRaw
         );
+    }
+
+    private static function requiredWithDefault(Env $env, string $key, string $default): string
+    {
+        $value = trim((string) $env->get($key, $default));
+        if ($value === '') {
+            throw new HttpException("Falta variable de entorno requerida: {$key}", 500);
+        }
+
+        return $value;
     }
 
     public function credentialId(): string

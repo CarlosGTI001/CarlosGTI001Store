@@ -18,19 +18,33 @@ final class ProductComparisonService
             $listing = $this->selectListing($item);
             $features = $this->extractFeatures($item);
             $priceData = $listing['price']['money'] ?? null;
+            $savingData = $listing['price']['savings']['money'] ?? null;
+            $savingBasisData = $listing['price']['savingBasis']['money'] ?? null;
+            $images = $this->extractImages($item);
+            $salesRanks = $this->extractSalesRanks($item);
+            $merchantName = isset($listing['merchantInfo']['name']) && is_string($listing['merchantInfo']['name'])
+                ? trim($listing['merchantInfo']['name'])
+                : null;
+            $currency = $priceData['currency'] ?? $savingData['currency'] ?? $savingBasisData['currency'] ?? null;
+            $priceAmount = isset($priceData['amount']) && is_numeric($priceData['amount'])
+                ? (float) $priceData['amount']
+                : null;
+            $savingsAmount = isset($savingData['amount']) && is_numeric($savingData['amount'])
+                ? (float) $savingData['amount']
+                : null;
+            $listPriceAmount = isset($savingBasisData['amount']) && is_numeric($savingBasisData['amount'])
+                ? (float) $savingBasisData['amount']
+                : null;
+            $websiteSalesRank = $salesRanks['websiteSalesRank'] ?? null;
 
             $normalized[] = [
                 'asin' => (string) ($item['asin'] ?? ''),
                 'title' => $item['itemInfo']['title']['displayValue'] ?? null,
                 'affiliateUrl' => $item['detailPageURL'] ?? null,
-                'imageUrl' => $item['images']['primary']['large']['url']
-                    ?? $item['images']['primary']['medium']['url']
-                    ?? $item['images']['primary']['small']['url']
-                    ?? null,
-                'price' => isset($priceData['amount']) && is_numeric($priceData['amount'])
-                    ? (float) $priceData['amount']
-                    : null,
-                'currency' => $priceData['currency'] ?? null,
+                'imageUrl' => $images['primary']['url'] ?? null,
+                'images' => $images,
+                'price' => $priceAmount,
+                'currency' => $currency,
                 'displayPrice' => $priceData['displayAmount'] ?? null,
                 'features' => $features,
                 'featuresCount' => count($features),
@@ -38,11 +52,41 @@ final class ProductComparisonService
                 'savingsPercentage' => isset($listing['price']['savings']['percentage'])
                     ? (float) $listing['price']['savings']['percentage']
                     : null,
+                'savingsAmount' => $savingsAmount,
+                'listPrice' => $listPriceAmount,
                 'condition' => $listing['condition']['value'] ?? null,
-                'websiteSalesRank' => isset($item['browseNodeInfo']['websiteSalesRank']['salesRank'])
-                    ? (int) $item['browseNodeInfo']['websiteSalesRank']['salesRank']
-                    : null,
+                'websiteSalesRank' => $websiteSalesRank,
                 'availability' => $listing['availability']['type'] ?? null,
+                'merchantName' => $merchantName,
+                'categoryHints' => $this->extractCategoryHints($item),
+                'salesRanks' => $salesRanks,
+                'pricing' => [
+                    'current' => [
+                        'amount' => $priceAmount,
+                        'currency' => $currency,
+                        'display' => $priceData['displayAmount'] ?? null,
+                    ],
+                    'list' => [
+                        'amount' => $listPriceAmount,
+                        'currency' => $currency,
+                        'display' => $savingBasisData['displayAmount'] ?? null,
+                    ],
+                    'savings' => [
+                        'amount' => $savingsAmount,
+                        'currency' => $currency,
+                        'display' => $savingData['displayAmount'] ?? null,
+                        'percentage' => isset($listing['price']['savings']['percentage'])
+                            ? (float) $listing['price']['savings']['percentage']
+                            : null,
+                    ],
+                ],
+                'qualitySignals' => [
+                    'buyBoxWinner' => (bool) ($listing['isBuyBoxWinner'] ?? false),
+                    'websiteSalesRank' => $websiteSalesRank,
+                    'bestBrowseNodeSalesRank' => $salesRanks['bestBrowseNodeSalesRank'] ?? null,
+                    'availability' => $listing['availability']['type'] ?? null,
+                    'condition' => $listing['condition']['value'] ?? null,
+                ],
             ];
         }
 
@@ -138,6 +182,151 @@ final class ProductComparisonService
         }
 
         return $clean;
+    }
+
+    /**
+     * @param array<string, mixed> $item
+     * @return array<string, mixed>
+     */
+    private function extractImages(array $item): array
+    {
+        $small = $this->mapImage($item['images']['primary']['small'] ?? null);
+        $medium = $this->mapImage($item['images']['primary']['medium'] ?? null);
+        $large = $this->mapImage($item['images']['primary']['large'] ?? null);
+        $hiRes = $this->mapImage($item['images']['primary']['hiRes'] ?? null);
+        $primary = $large ?? $medium ?? $small ?? $hiRes;
+
+        $variants = [];
+        $variantNodes = $item['images']['variants'] ?? [];
+        if (is_array($variantNodes)) {
+            foreach ($variantNodes as $variantNode) {
+                if (!is_array($variantNode)) {
+                    continue;
+                }
+
+                $variant = $this->mapImage($variantNode['large'] ?? null)
+                    ?? $this->mapImage($variantNode['medium'] ?? null)
+                    ?? $this->mapImage($variantNode['small'] ?? null)
+                    ?? $this->mapImage($variantNode['hiRes'] ?? null);
+                if ($variant !== null) {
+                    $variants[] = $variant;
+                }
+            }
+        }
+
+        return [
+            'primary' => $primary,
+            'sizes' => [
+                'small' => $small,
+                'medium' => $medium,
+                'large' => $large,
+                'hiRes' => $hiRes,
+            ],
+            'variants' => $variants,
+            'gallery' => $primary !== null ? array_values(array_filter(array_merge([$primary], $variants))) : $variants,
+        ];
+    }
+
+    /**
+     * @param mixed $imageNode
+     * @return array<string, mixed>|null
+     */
+    private function mapImage(mixed $imageNode): ?array
+    {
+        if (!is_array($imageNode)) {
+            return null;
+        }
+
+        $url = isset($imageNode['url']) && is_string($imageNode['url']) ? trim($imageNode['url']) : '';
+        if ($url === '') {
+            return null;
+        }
+
+        return [
+            'url' => $url,
+            'width' => isset($imageNode['width']) && is_numeric($imageNode['width']) ? (int) $imageNode['width'] : null,
+            'height' => isset($imageNode['height']) && is_numeric($imageNode['height']) ? (int) $imageNode['height'] : null,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $item
+     * @return array<int, array<string, mixed>>
+     */
+    private function extractCategoryHints(array $item): array
+    {
+        $result = [];
+        $browseNodes = $item['browseNodeInfo']['browseNodes'] ?? [];
+        if (!is_array($browseNodes)) {
+            return $result;
+        }
+
+        foreach ($browseNodes as $browseNode) {
+            if (!is_array($browseNode)) {
+                continue;
+            }
+
+            $name = null;
+            if (isset($browseNode['contextFreeName']) && is_string($browseNode['contextFreeName'])) {
+                $name = trim($browseNode['contextFreeName']);
+            } elseif (isset($browseNode['displayName']) && is_string($browseNode['displayName'])) {
+                $name = trim($browseNode['displayName']);
+            }
+
+            if ($name === null || $name === '') {
+                continue;
+            }
+
+            $result[] = [
+                'id' => isset($browseNode['id']) ? (string) $browseNode['id'] : null,
+                'name' => $name,
+                'salesRank' => isset($browseNode['salesRank']) && is_numeric($browseNode['salesRank'])
+                    ? (int) $browseNode['salesRank']
+                    : null,
+            ];
+
+            if (count($result) >= 5) {
+                break;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param array<string, mixed> $item
+     * @return array<string, int|null>
+     */
+    private function extractSalesRanks(array $item): array
+    {
+        $websiteSalesRank = isset($item['browseNodeInfo']['websiteSalesRank']['salesRank'])
+            && is_numeric($item['browseNodeInfo']['websiteSalesRank']['salesRank'])
+            ? (int) $item['browseNodeInfo']['websiteSalesRank']['salesRank']
+            : null;
+
+        $bestBrowseNodeSalesRank = null;
+        $browseNodes = $item['browseNodeInfo']['browseNodes'] ?? [];
+        if (is_array($browseNodes)) {
+            foreach ($browseNodes as $browseNode) {
+                if (!is_array($browseNode) || !isset($browseNode['salesRank']) || !is_numeric($browseNode['salesRank'])) {
+                    continue;
+                }
+
+                $salesRank = (int) $browseNode['salesRank'];
+                if ($salesRank <= 0) {
+                    continue;
+                }
+
+                if ($bestBrowseNodeSalesRank === null || $salesRank < $bestBrowseNodeSalesRank) {
+                    $bestBrowseNodeSalesRank = $salesRank;
+                }
+            }
+        }
+
+        return [
+            'websiteSalesRank' => $websiteSalesRank,
+            'bestBrowseNodeSalesRank' => $bestBrowseNodeSalesRank,
+        ];
     }
 
     private function calculatePriceScore(?float $price, ?float $minPrice, ?float $maxPrice): float

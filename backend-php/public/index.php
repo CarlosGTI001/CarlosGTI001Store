@@ -2,10 +2,12 @@
 
 declare(strict_types=1);
 
+use App\AI\CohereClient;
 use App\Comparison\ProductComparisonService;
 use App\CreatorsApi\Client;
 use App\CreatorsApi\Config;
 use App\CreatorsApi\TokenProvider;
+use App\Presentation\SemanticProductTransformer;
 use App\Support\Env;
 use App\Support\HttpException;
 
@@ -39,6 +41,23 @@ try {
     $tokenProvider = new TokenProvider($config, __DIR__ . '/../storage/token-cache.json');
     $client = new Client($config, $tokenProvider);
     $comparisonService = new ProductComparisonService();
+    $semanticTransformer = new SemanticProductTransformer();
+    $aiProvider = strtolower(trim((string) $env->get('AI_PROVIDER', 'heuristic')));
+    $cohereClient = null;
+
+    if ($aiProvider === 'cohere') {
+        $cohereApiKey = $env->getRequired('COHERE_API_KEY');
+        $cohereModel = trim((string) $env->get('COHERE_MODEL', 'command-r-plus'));
+        if ($cohereModel === '') {
+            throw new HttpException('COHERE_MODEL no puede ser vacío cuando AI_PROVIDER=cohere.', 500);
+        }
+
+        $cohereClient = new CohereClient(
+            apiKey: $cohereApiKey,
+            model: $cohereModel,
+            timeoutSeconds: $config->requestTimeoutSeconds()
+        );
+    }
 
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
     $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
@@ -59,6 +78,19 @@ try {
         $normalized = $comparisonService->normalizeItems($rawItems);
         $weights = normalizeWeights($body['weights'] ?? null);
         $ranked = $comparisonService->rankItems($normalized, $weights);
+        $ai = buildAiInsights($cohereClient, $ranked, [
+            'operation' => 'search',
+            'keywords' => $body['keywords'] ?? null,
+            'searchIndex' => $body['searchIndex'] ?? null,
+        ]);
+        $ranked = applyAiItemInsights($ranked, $ai['productAnalyses'] ?? null);
+        $recommended = selectRecommendedItem($ranked, $ai['recommendedAsin'] ?? null);
+        $semantic = $semanticTransformer->build($ranked, $recommended, $ai, [
+            'operation' => 'search',
+            'keywords' => $body['keywords'] ?? null,
+            'searchIndex' => $body['searchIndex'] ?? null,
+            'marketplace' => $config->marketplace(),
+        ]);
 
         respond(200, [
             'query' => [
@@ -70,7 +102,9 @@ try {
                 'searchURL' => $response['searchResult']['searchURL'] ?? null,
             ],
             'items' => $ranked,
-            'recommended' => $ranked[0] ?? null,
+            'recommended' => $recommended,
+            'ai' => $ai,
+            'semantic' => $semantic,
             'errors' => $response['errors'] ?? [],
         ]);
     }
@@ -101,6 +135,17 @@ try {
         $normalized = $comparisonService->normalizeItems($rawItems);
         $weights = normalizeWeights($body['weights'] ?? null);
         $ranked = $comparisonService->rankItems($normalized, $weights);
+        $ai = buildAiInsights($cohereClient, $ranked, [
+            'operation' => 'compare',
+            'requestedAsins' => $asins,
+        ]);
+        $ranked = applyAiItemInsights($ranked, $ai['productAnalyses'] ?? null);
+        $recommended = selectRecommendedItem($ranked, $ai['recommendedAsin'] ?? null);
+        $semantic = $semanticTransformer->build($ranked, $recommended, $ai, [
+            'operation' => 'compare',
+            'requestedAsins' => $asins,
+            'marketplace' => $config->marketplace(),
+        ]);
 
         $foundAsins = array_map(
             static fn(array $item): string => (string) ($item['asin'] ?? ''),
@@ -112,7 +157,9 @@ try {
             'requestedAsins' => $asins,
             'missingAsins' => $missingAsins,
             'items' => $ranked,
-            'recommended' => $ranked[0] ?? null,
+            'recommended' => $recommended,
+            'ai' => $ai,
+            'semantic' => $semantic,
             'errors' => $response['errors'] ?? [],
         ]);
     }
@@ -290,4 +337,143 @@ function positiveInt(mixed $value, string $field): int
     }
 
     return $integer;
+}
+
+/**
+ * @param array<int, array<string, mixed>> $items
+ * @param array<string, mixed> $context
+ * @return array<string, mixed>
+ */
+function buildAiInsights(?CohereClient $cohereClient, array $items, array $context = []): array
+{
+    $fallbackAnalyses = [];
+    foreach ($items as $item) {
+        if (!isset($item['asin']) || !is_string($item['asin'])) {
+            continue;
+        }
+
+        $fallbackAnalyses[] = [
+            'asin' => strtoupper($item['asin']),
+            'title' => isset($item['title']) && is_string($item['title']) ? $item['title'] : null,
+            'affiliateUrl' => isset($item['affiliateUrl']) && is_string($item['affiliateUrl']) ? $item['affiliateUrl'] : null,
+            'analysis' => isset($item['aiSummary']) && is_string($item['aiSummary']) ? $item['aiSummary'] : null,
+        ];
+    }
+
+    if ($cohereClient === null) {
+        return [
+            'provider' => 'heuristic',
+            'recommendedAsin' => isset($items[0]['asin']) && is_string($items[0]['asin']) ? strtoupper($items[0]['asin']) : null,
+            'recommendedAffiliateUrl' => isset($items[0]['affiliateUrl']) && is_string($items[0]['affiliateUrl']) ? $items[0]['affiliateUrl'] : null,
+            'summaryLong' => 'Recomendación basada en scoring heurístico de precio, características y señales de calidad.',
+            'recommendationLong' => 'Activa AI_PROVIDER=cohere para obtener un informe comparativo más extenso generado por IA.',
+            'productAnalyses' => $fallbackAnalyses,
+        ];
+    }
+
+    try {
+        $analysis = $cohereClient->analyzeRanking($items, $context);
+        $recommendedAsin = isset($analysis['recommendedAsin']) && is_string($analysis['recommendedAsin'])
+            ? strtoupper(trim($analysis['recommendedAsin']))
+            : null;
+
+        if ($recommendedAsin === null && isset($items[0]['asin']) && is_string($items[0]['asin'])) {
+            $recommendedAsin = strtoupper($items[0]['asin']);
+        }
+
+        $recommendedAffiliateUrl = null;
+        foreach ($items as $item) {
+            $asin = isset($item['asin']) && is_string($item['asin']) ? strtoupper($item['asin']) : '';
+            if ($asin !== '' && $asin === $recommendedAsin) {
+                $recommendedAffiliateUrl = isset($item['affiliateUrl']) && is_string($item['affiliateUrl'])
+                    ? $item['affiliateUrl']
+                    : null;
+                break;
+            }
+        }
+
+        $productAnalyses = isset($analysis['productAnalyses']) && is_array($analysis['productAnalyses'])
+            ? $analysis['productAnalyses']
+            : $fallbackAnalyses;
+
+        return [
+            'provider' => 'cohere',
+            'model' => $analysis['model'] ?? null,
+            'recommendedAsin' => $recommendedAsin,
+            'recommendedAffiliateUrl' => $analysis['recommendedAffiliateUrl'] ?? $recommendedAffiliateUrl,
+            'summaryLong' => $analysis['summaryLong'] ?? null,
+            'recommendationLong' => $analysis['recommendationLong'] ?? null,
+            'productAnalyses' => $productAnalyses,
+        ];
+    } catch (HttpException $exception) {
+        return [
+            'provider' => 'cohere',
+            'error' => $exception->getMessage(),
+            'details' => $exception->getContext(),
+            'recommendedAsin' => isset($items[0]['asin']) && is_string($items[0]['asin']) ? strtoupper($items[0]['asin']) : null,
+            'recommendedAffiliateUrl' => isset($items[0]['affiliateUrl']) && is_string($items[0]['affiliateUrl']) ? $items[0]['affiliateUrl'] : null,
+            'summaryLong' => 'No se pudo generar el análisis largo con Cohere en este momento. Se mantiene el ranking heurístico.',
+            'recommendationLong' => null,
+            'productAnalyses' => $fallbackAnalyses,
+        ];
+    }
+}
+
+/**
+ * @param array<int, array<string, mixed>> $items
+ * @param mixed $productAnalyses
+ * @return array<int, array<string, mixed>>
+ */
+function applyAiItemInsights(array $items, mixed $productAnalyses): array
+{
+    if (!is_array($productAnalyses)) {
+        return $items;
+    }
+
+    $insightsByAsin = [];
+    foreach ($productAnalyses as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+
+        $asin = isset($entry['asin']) && is_string($entry['asin']) ? strtoupper(trim($entry['asin'])) : '';
+        $text = null;
+        if (isset($entry['analysis']) && is_string($entry['analysis'])) {
+            $text = trim($entry['analysis']);
+        } elseif (isset($entry['note']) && is_string($entry['note'])) {
+            $text = trim($entry['note']);
+        }
+
+        if ($asin !== '' && is_string($text) && $text !== '') {
+            $insightsByAsin[$asin] = $text;
+        }
+    }
+
+    foreach ($items as &$item) {
+        $asin = isset($item['asin']) && is_string($item['asin']) ? strtoupper($item['asin']) : '';
+        if ($asin !== '' && isset($insightsByAsin[$asin])) {
+            $item['aiSummary'] = $insightsByAsin[$asin];
+        }
+    }
+    unset($item);
+
+    return $items;
+}
+
+/**
+ * @param array<int, array<string, mixed>> $items
+ */
+function selectRecommendedItem(array $items, mixed $recommendedAsin): ?array
+{
+    if (is_string($recommendedAsin) && trim($recommendedAsin) !== '') {
+        $targetAsin = strtoupper(trim($recommendedAsin));
+        foreach ($items as $item) {
+            $asin = isset($item['asin']) && is_string($item['asin']) ? strtoupper($item['asin']) : '';
+            if ($asin === $targetAsin) {
+                return $item;
+            }
+        }
+    }
+
+    return $items[0] ?? null;
 }

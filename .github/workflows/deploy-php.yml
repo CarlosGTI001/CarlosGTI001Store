@@ -1,0 +1,55 @@
+name: Package PHP Backend
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend-php/**"
+      - ".github/workflows/deploy-php.yml"
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    environment: amazonapi
+    env:
+      VERSION: ${{ vars.VERSION }}
+      MARKETPLACE: ${{ vars.MARKETPLACE }}
+      PARTNER_TAG: ${{ vars.PARTNER_TAG }}
+      REQUEST_TIMEOUT_SECONDS: ${{ vars.REQUEST_TIMEOUT_SECONDS }}
+      AI_PROVIDER: ${{ vars.AI_PROVIDER }}
+      COHERE_MODEL: ${{ vars.COHERE_MODEL }}
+      CREDENTIAL_ID: ${{ secrets.CREDENTIAL_ID }}
+      CREDENTIAL_SECRET: ${{ secrets.CREDENTIAL_SECRET }}
+      COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create production .env (includes secrets)
+        run: |
+          cat > backend-php/.env <<EOF
+          CREDENTIAL_ID=${CREDENTIAL_ID}
+          CREDENTIAL_SECRET=${CREDENTIAL_SECRET}
+          VERSION=${VERSION:-V3.1}
+          MARKETPLACE=${MARKETPLACE:-www.amazon.com}
+          PARTNER_TAG=${PARTNER_TAG:-carlosgti000b-20}
+          REQUEST_TIMEOUT_SECONDS=${REQUEST_TIMEOUT_SECONDS:-20}
+          AI_PROVIDER=${AI_PROVIDER:-heuristic}
+          COHERE_MODEL=${COHERE_MODEL:-command-r-plus}
+          COHERE_API_KEY=${COHERE_API_KEY}
+          EOF
+
+      - name: Create package
+        run: |
+          mkdir -p dist
+          tar -czf "dist/backend-php-${GITHUB_SHA}.tar.gz" backend-php
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-php-package-${{ github.sha }}
+          path: dist/backend-php-${{ github.sha }}.tar.gz
+          retention-days: 7
