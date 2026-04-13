@@ -1,0 +1,237 @@
+# Locale Information for DE Marketplace
+
+Source: `_creatorsapi_docs_en-us_locale-reference_germany.html`
+
+# Locale Information for DE Marketplace
+
+Locale Information for various parameters in DE Marketplace:
+
+## Marketplace
+
+The Marketplace value for DE marketplace is: `www.amazon.de`
+
+## Language of Preference
+
+The default Language of preference in DE marketplace is: `de_DE`
+
+### Valid Languages
+
+Language
+
+Description
+
+`cs_CZ`
+
+Czech - CZECHIA
+
+`de_DE`
+
+German - GERMANY
+
+`en_GB`
+
+English - UNITED KINGDOM
+
+`nl_NL`
+
+Dutch - NETHERLANDS
+
+`pl_PL`
+
+Polish - POLAND
+
+`tr_TR`
+
+Turkish - TURKEY
+
+## Currency of Preference
+
+The default Currency of preference in DE marketplace is: `EUR`
+
+### Valid Currencies
+
+Currency
+
+Description
+
+`EUR`
+
+`Euro`
+
+## Search Index
+
+Search Index
+
+Display Name
+
+All
+
+Alle Kategorien
+
+AmazonVideo
+
+Prime Video
+
+Apparel
+
+Bekleidung
+
+Appliances
+
+Elektro-Großgeräte
+
+Automotive
+
+Auto & Motorrad
+
+Baby
+
+Baby
+
+Beauty
+
+Beauty
+
+Books
+
+Bücher
+
+Classical
+
+Klassik
+
+Computers
+
+Computer & Zubehör
+
+DigitalMusic
+
+Musik-Downloads
+
+Electronics
+
+Elektronik & Foto
+
+EverythingElse
+
+Sonstiges
+
+Fashion
+
+Fashion
+
+ForeignBooks
+
+Bücher (Fremdsprachig)
+
+GardenAndOutdoor
+
+Garten
+
+GiftCards
+
+Geschenkgutscheine
+
+GroceryAndGourmetFood
+
+Lebensmittel & Getränke
+
+Handmade
+
+Handmade
+
+HealthPersonalCare
+
+Drogerie & Körperpflege
+
+HomeAndKitchen
+
+Küche, Haushalt & Wohnen
+
+Industrial
+
+Gewerbe, Industrie & Wissenschaft
+
+Jewelry
+
+Schmuck
+
+KindleStore
+
+Kindle-Shop
+
+Lighting
+
+Beleuchtung
+
+Luggage
+
+Koffer, Rucksäcke & Taschen
+
+LuxuryBeauty
+
+Luxury Beauty
+
+Magazines
+
+Zeitschriften
+
+MobileApps
+
+Apps & Spiele
+
+MoviesAndTV
+
+DVD & Blu-ray
+
+Music
+
+Musik-CDs & Vinyl
+
+MusicalInstruments
+
+Musikinstrumente & DJ-Equipment
+
+OfficeProducts
+
+Bürobedarf & Schreibwaren
+
+PetSupplies
+
+Haustier
+
+Photo
+
+Kamera & Foto
+
+Shoes
+
+Schuhe & Handtaschen
+
+Software
+
+Software
+
+SportsAndOutdoors
+
+Sport & Freizeit
+
+ToolsAndHomeImprovement
+
+Baumarkt
+
+ToysAndGames
+
+Spielzeug
+
+VHS
+
+VHS
+
+VideoGames
+
+Games
+
+Watches
+
+Uhren
